@@ -19,7 +19,7 @@ public class MockPaymentGateway implements PaymentGateway {
     ) {
         return CreatePaymentLinkResponseDto.builder()
                 .paymentId("mock_payment_" + System.currentTimeMillis())
-                .paymentUrl(mockPaymentUrl)   // ✅ FIXED
+                .paymentUrl(mockPaymentUrl)
                 .build();
     }
 }

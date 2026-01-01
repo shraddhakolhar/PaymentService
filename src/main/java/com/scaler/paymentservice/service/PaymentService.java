@@ -10,5 +10,8 @@ public interface PaymentService {
             String userEmail
     );
 
-    void markPaymentSuccess(String gatewayPaymentId);
+    /**
+     * @return true if payment transitioned to SUCCESS now
+     */
+    boolean markPaymentSuccess(String gatewayPaymentId);
 }

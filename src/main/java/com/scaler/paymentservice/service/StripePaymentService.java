@@ -26,6 +26,9 @@ public class StripePaymentService implements PaymentService {
         this.paymentRepository = paymentRepository;
     }
 
+    /**
+     * 🔹 Create Stripe checkout session + persist PENDING payment
+     */
     @Override
     @Transactional
     public CreatePaymentLinkResponseDto createPayment(
@@ -44,7 +47,7 @@ public class StripePaymentService implements PaymentService {
                 .amount(request.getAmount())
                 .paymentGateway(PaymentProvider.STRIPE)
                 .paymentLink(response.getPaymentUrl())
-                .gatewayPaymentId(response.getPaymentId())
+                .gatewayPaymentId(response.getPaymentId()) // Stripe session ID
                 .status(PaymentStatus.PENDING)
                 .build();
 
@@ -53,16 +56,29 @@ public class StripePaymentService implements PaymentService {
         return response;
     }
 
+    /**
+     * 🔐 IDEMPOTENT STRIPE WEBHOOK HANDLER
+     */
     @Override
     @Transactional
-    public void markPaymentSuccess(String gatewayPaymentId) {
+    public boolean markPaymentSuccess(String gatewayPaymentId) {
+
         Payment payment = paymentRepository
                 .findByGatewayPaymentId(gatewayPaymentId)
                 .orElseThrow(() ->
-                        new RuntimeException("Payment not found: " + gatewayPaymentId)
+                        new RuntimeException(
+                                "Payment not found for gatewayPaymentId: " + gatewayPaymentId
+                        )
                 );
+
+        // 🔁 Idempotency guard
+        if (payment.getStatus() == PaymentStatus.SUCCESS) {
+            return false; // already processed
+        }
 
         payment.setStatus(PaymentStatus.SUCCESS);
         paymentRepository.save(payment);
+
+        return true; // processed NOW
     }
 }

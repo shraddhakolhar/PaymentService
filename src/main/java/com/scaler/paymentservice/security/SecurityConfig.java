@@ -21,22 +21,21 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        // ✅ mock webhook must be public
+                        // mock webhook must be public
                         .requestMatchers("/mock/**").permitAll()
 
-                        // ✅ error endpoint must be public
+                        // error endpoint must be public
                         .requestMatchers("/error").permitAll()
 
-                        // 🔐 payment creation requires auth
+                        // payment creation requires auth
                         .requestMatchers("/payments/**").authenticated()
 
-                        // 🔐 everything else
+                        // everything else
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(sm ->
                         sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
-                // 🔥 THIS WAS MISSING
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

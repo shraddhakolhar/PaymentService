@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+
 @Component
 @Profile("stripe")
 public class StripePaymentGateway implements PaymentGateway {
@@ -30,6 +32,11 @@ public class StripePaymentGateway implements PaymentGateway {
             CreatePaymentLinkRequestDto request
     ) {
         try {
+            long amountInPaise =
+                    request.getAmount()
+                            .multiply(BigDecimal.valueOf(100))
+                            .longValueExact();
+
             SessionCreateParams params =
                     SessionCreateParams.builder()
                             .setMode(SessionCreateParams.Mode.PAYMENT)
@@ -41,12 +48,12 @@ public class StripePaymentGateway implements PaymentGateway {
                                             .setPriceData(
                                                     SessionCreateParams.LineItem.PriceData.builder()
                                                             .setCurrency("inr")
-                                                            // rupees → paise
-                                                            .setUnitAmount(
-                                                                    request.getAmount().longValue() * 100
-                                                            )
+                                                            .setUnitAmount(amountInPaise)
                                                             .setProductData(
-                                                                    SessionCreateParams.LineItem.PriceData.ProductData
+                                                                    SessionCreateParams
+                                                                            .LineItem
+                                                                            .PriceData
+                                                                            .ProductData
                                                                             .builder()
                                                                             .setName(
                                                                                     "Order #" + request.getOrderId()
@@ -57,14 +64,16 @@ public class StripePaymentGateway implements PaymentGateway {
                                             )
                                             .build()
                             )
+                            // Metadata = webhook truth
                             .putMetadata("orderId", request.getOrderId())
                             .build();
 
             Session session = Session.create(params);
 
+            // CORRECT ORDER
             return new CreatePaymentLinkResponseDto(
-                    session.getId(),   // paymentId
-                    session.getUrl()   // paymentUrl
+                    session.getUrl(), // paymentUrl
+                    session.getId()   // gatewayPaymentId
             );
 
         } catch (Exception e) {

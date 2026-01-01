@@ -6,11 +6,11 @@ import com.scaler.paymentservice.entity.Payment;
 import com.scaler.paymentservice.entity.PaymentProvider;
 import com.scaler.paymentservice.entity.PaymentStatus;
 import com.scaler.paymentservice.repository.PaymentRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Profile("mock")
@@ -19,10 +19,16 @@ public class MockPaymentService implements PaymentService {
 
     private final PaymentRepository paymentRepository;
 
+    @Value("${mock.payment.url}")
+    private String mockPaymentUrl;
+
     public MockPaymentService(PaymentRepository paymentRepository) {
         this.paymentRepository = paymentRepository;
     }
 
+    /**
+     * ✅ Create payment (normal flow)
+     */
     @Override
     @Transactional
     public CreatePaymentLinkResponseDto createPayment(
@@ -30,42 +36,55 @@ public class MockPaymentService implements PaymentService {
             String userEmail
     ) {
 
-        String paymentId = "mock-pay-" + UUID.randomUUID();
-        String paymentLink = "http://localhost:8082/mock/pay/" + paymentId;
+        String gatewayPaymentId = "mock-pay-" + UUID.randomUUID();
+        String paymentLink = mockPaymentUrl + gatewayPaymentId;
 
-        // ✅ Persist payment
         Payment payment = Payment.builder()
                 .orderId(Long.valueOf(request.getOrderId()))
                 .userEmail(userEmail)
                 .amount(request.getAmount())
                 .status(PaymentStatus.PENDING)
                 .paymentGateway(PaymentProvider.MOCK)
-                .gatewayPaymentId(paymentId)
+                .gatewayPaymentId(gatewayPaymentId)
                 .paymentLink(paymentLink)
-                .createdAt(LocalDateTime.now())
-                .build();
+                .build(); // timestamps handled by @PrePersist
 
         paymentRepository.save(payment);
 
         return new CreatePaymentLinkResponseDto(
                 paymentLink,
-                paymentId
+                gatewayPaymentId
         );
     }
 
-    @Transactional
+    /**
+     * 🔐 IDEMPOTENT + THREAD SAFE WEBHOOK
+     *
+     * @return true  -> payment status changed NOW
+     * @return false -> webhook already processed earlier
+     */
     @Override
-    public void markPaymentSuccess(String gatewayPaymentId) {
+    @Transactional
+    public boolean markPaymentSuccess(String gatewayPaymentId) {
 
         Payment payment = paymentRepository
-                .findByGatewayPaymentId(gatewayPaymentId)
+                .findByGatewayPaymentIdForUpdate(gatewayPaymentId) // 🔒 LOCK ROW
                 .orElseThrow(() ->
-                        new RuntimeException("Payment not found for gatewayPaymentId: " + gatewayPaymentId)
+                        new RuntimeException(
+                                "Payment not found for gatewayPaymentId: " + gatewayPaymentId
+                        )
                 );
 
+        // 🔁 IDEMPOTENCY GUARD
+        if (payment.getStatus() == PaymentStatus.SUCCESS) {
+            return false; // already processed → safe no-op
+        }
+
         payment.setStatus(PaymentStatus.SUCCESS);
-        payment.setUpdatedAt(LocalDateTime.now());
+        // updatedAt handled by @PreUpdate
 
         paymentRepository.save(payment);
+
+        return true; // FIRST time success
     }
 }

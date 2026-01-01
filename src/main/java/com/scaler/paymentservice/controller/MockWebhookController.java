@@ -17,6 +17,10 @@ public class MockWebhookController {
     private final RestTemplate restTemplate;
     private final PaymentService paymentService;
 
+    /**
+     * MUST match application.properties
+     * orders.service.url=http://localhost:8483
+     */
     @Value("${order.service.url}")
     private String orderServiceUrl;
 
@@ -29,7 +33,13 @@ public class MockWebhookController {
     }
 
     /**
-     * ✅ Simulate payment success webhook (CORRECT)
+     * IDEMPOTENT MOCK WEBHOOK
+     *
+     * Payload example:
+     * {
+     *   "orderId": "1",
+     *   "gatewayPaymentId": "mock-pay-xxxx"
+     * }
      */
     @PostMapping("/payment-success")
     public ResponseEntity<Void> mockPaymentSuccess(
@@ -39,15 +49,18 @@ public class MockWebhookController {
         String orderId = payload.get("orderId");
         String gatewayPaymentId = payload.get("gatewayPaymentId");
 
-        // 1️⃣ Update payment DB
-        paymentService.markPaymentSuccess(gatewayPaymentId);
+        // Update payment DB (idempotent)
+        boolean stateChanged =
+                paymentService.markPaymentSuccess(gatewayPaymentId);
 
-        // 2️⃣ Notify Order Service
-        restTemplate.postForEntity(
-                orderServiceUrl + "/orders/" + orderId + "/paid",
-                gatewayPaymentId,
-                Void.class
-        );
+        // Notify Order Service ONLY once
+        if (stateChanged) {
+            restTemplate.postForEntity(
+                    orderServiceUrl + "/orders/" + orderId + "/paid",
+                    gatewayPaymentId,
+                    Void.class
+            );
+        }
 
         return ResponseEntity.ok().build();
     }
